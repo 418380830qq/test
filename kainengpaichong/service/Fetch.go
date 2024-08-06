@@ -32,6 +32,7 @@ type Data struct {
 	Word     string `json:"word"`
 	QsStar   int    `json:"qsStar"`
 	SugPrice string `json:"sugPrice"`
+	BidPrice string `json:"bidPrice"`
 }
 
 type res2 struct {
@@ -131,19 +132,18 @@ func Fetch1(planId int, plantitle string) {
 	}
 
 	for _, item := range res1.Data {
-		sugPrice, err := strconv.ParseFloat(item.SugPrice, 64)
 		if err != nil {
 			fmt.Println("转换失败:", err)
 			return
 		}
-		Fetch2(planId, item.Word, item.Id, sugPrice, plantitle)
+		Fetch2(planId, item.Word, item.Id, plantitle, item.BidPrice)
 
 	}
 
 }
 
 // Fetch2 查看价格
-func Fetch2(planid int, word string, wordid int, nowprice float64, plantitle string) {
+func Fetch2(planid int, word string, wordid int, plantitle string, nowprice string) {
 	url := fmt.Sprintf("https://www2.alibaba.com/api/recommend/bid/keyword/bid")
 	client := &http.Client{}
 	formData := url2.Values{}
@@ -183,72 +183,130 @@ func Fetch2(planid int, word string, wordid int, nowprice float64, plantitle str
 	}
 	fmt.Println(word, res2.Data[0].SuggestPriceStr, res2.Data[0].MinPriceStr, res2.Data[0].TopPosPriceStr, wordid, planid)
 	suggestPriceStr, err := strconv.ParseFloat(res2.Data[0].SuggestPriceStr, 64)
-	maxpriceStr, err := strconv.ParseFloat(res2.Data[0].TopPosPriceStr, 64)
-	minPriceStr, err := strconv.ParseFloat(res2.Data[0].MinPriceStr, 64)
-
 	if err != nil {
 		// 解析失败，处理错误
 		fmt.Println("Error parsing suggestPriceStr:", err)
 		return
 	}
-	sqldata := model.Fromplan{
-		PlanName:        plantitle,
-		Planid:          planid,
-		Wordid:          wordid,
-		Word:            word,
-		SuggestPriceStr: suggestPriceStr,
-		Maxprice:        maxpriceStr,
-		MinPrice:        minPriceStr,
-		NowPrice:        nowprice,
+	maxpriceStr, err := strconv.ParseFloat(res2.Data[0].TopPosPriceStr, 64)
+	if err != nil {
+		// 解析失败，处理错误
+		fmt.Println("Error parsing maxpriceStr:", err)
+		return
 	}
-	model.CreateOrUpdateData(&sqldata)
-	Fetch3(planid, wordid, suggestPriceStr)
+	minPriceStr, err := strconv.ParseFloat(res2.Data[0].MinPriceStr, 64)
+	if err != nil {
+		// 解析失败，处理错误
+		fmt.Println("Error parsing minPriceStr:", err)
+		return
+	}
+	nowprices, err := strconv.ParseFloat(nowprice, 64)
+	if err != nil {
+		// 解析失败，处理错误
+		fmt.Println("Error parsing nowprices:", err)
+		return
+	}
+	var selectbywordid model.Fromplan
+	selectbywordid, err = model.SelectByWordid(wordid)
+	//判断是否存在
+	if selectbywordid.Wordid == 0 {
+		sqldata := model.Fromplan{
+			PlanName:        plantitle,
+			Planid:          planid,
+			Wordid:          wordid,
+			Word:            word,
+			SuggestPriceStr: suggestPriceStr,
+			UpBySuggest:     0,
+			Maxprice:        maxpriceStr,
+			MinPrice:        minPriceStr,
+			NowPrice:        nowprices,
+		}
+		model.CreateOrUpdateData(&sqldata)
+	}
+	if err != nil {
+		fmt.Println("根据词id查询失败:", err)
+		return
+	}
+	status, err := model.SelectStatus(wordid)
+	if err != nil {
+		fmt.Println("查询状态失败:", err)
+		return
+	}
+	stringStatus := strconv.FormatBool(status)
+	// 检查状态是否为未设置或空
+	if stringStatus == "" {
+		// 设置状态为 true 或您想要的默认值
+		status = true
+		// 更新数据库中的状态字段
+		err := model.UpdateStatus(wordid, status)
+		if err != nil {
+			fmt.Println("更新状态失败:", err)
+			return
+		}
+	} else if stringStatus == "true" {
+		// 如果状态为 true，则执行 Fetch3
+		Fetch3(planid, wordid, suggestPriceStr, plantitle, maxpriceStr, minPriceStr, word)
+		// 如果需要跳过之后的代码，可以在这里使用 continue
+	} else {
+
+	}
+
 }
 
 // Fetch3 修改价格
-func Fetch3(planid int, wordid int, price float64) {
-	sqldata := model.Fromplan{
-		Wordid: wordid,
-	}
-	setprice, err := model.SelectMaxPrice(&sqldata)
+func Fetch3(planid int, wordid int, suggestPriceStr float64, plantitle string, maxpriceStr float64, minPriceStr float64, word string) {
+	// 创建或更新价格数据的逻辑
+	var result model.Fromplan
+	result, _ = model.SelectByWordid(wordid)
+	upbyselect := result.UpBySuggest
+	setprice, err := model.SelectMaxPrice(&model.Fromplan{Wordid: wordid})
 	if err != nil {
 		fmt.Println("查找最大出价失败:", err)
 		return
 	}
+
+	// 如果最大出价为0，则设置默认价格为20.0
 	if setprice == 0 {
-		sqldata := model.Fromplan{
+		defaultPrice := 20.0
+		model.CreateOrUpdateData(&model.Fromplan{
 			Wordid:   wordid,
-			Setprice: 20.0,
-		}
-		model.CreateOrUpdateData(&sqldata)
+			Setprice: defaultPrice,
+		})
+		setprice = defaultPrice
 	}
-	sqldatas := model.Fromplan{
-		Wordid: wordid,
+
+	// 查询当前最大出价
+	currentMaxPrice, err := model.SelectMaxPrice(&model.Fromplan{Wordid: wordid})
+	if err != nil {
+		fmt.Println("查找当前最大出价失败:", err)
+		return
 	}
-	setprices, err := model.SelectMaxPrice(&sqldatas)
-	// 比较 price 和 setprice，取较小的值
-	if price < setprices {
-		sqldata := model.Fromplan{
-			NowPrice: price,
-		}
-		model.CreateOrUpdateData(&sqldata)
-		fmt.Println("价格未超过最大值，保持推荐价格:", price)
+
+	// 比较推荐价格和当前最大出价，更新数据库并打印相应信息
+	var nowPrice float64
+	var remarks string
+
+	if suggestPriceStr+upbyselect < currentMaxPrice {
+		nowPrice = suggestPriceStr + upbyselect
+		fmt.Println(nowPrice)
+		remarks = "价格未超过最大值，保持推荐价格"
 	} else {
-		price = setprices
-		sqldata := model.Fromplan{
-			NowPrice: price,
-			Remarks:  "超过最高价格",
-		}
-		model.CreateOrUpdateData(&sqldata)
-		fmt.Println("价格超过最大值，调整为最大值:", price)
+		nowPrice = currentMaxPrice
+		remarks = "价格超过最大值，调整为最大值"
 	}
+
+	model.CreateOrUpdateData(&model.Fromplan{
+		Wordid:   wordid,
+		NowPrice: nowPrice,
+		Remarks:  remarks,
+	})
 
 	url := fmt.Sprintf("https://www2.alibaba.com/api/campaign/%d/bidword/update", planid)
 	client := &http.Client{}
 	formData := url2.Values{}
 	formData.Set("type", "normal")
 	formData.Set("ads", "{\"productLineId\":110101}")
-	data := fmt.Sprintf("{\"updateType\":\"add_price\",\"keywordList\":[{\"id\":%d,\"price\":%f}]}", wordid, price)
+	data := fmt.Sprintf("{\"updateType\":\"add_price\",\"keywordList\":[{\"id\":%d,\"price\":%f}]}", wordid, nowPrice)
 	formData.Set("data", data)
 	formData.Set("_csrf", "54b2e113-db70-4beb-a437-e2e2c0639ce4")
 	req, err := http.NewRequest("POST", url, strings.NewReader(formData.Encode()))
@@ -281,6 +339,17 @@ func Fetch3(planid int, wordid int, price float64) {
 		return
 	}
 	if res3.Ok {
+		sqldata := model.Fromplan{
+			PlanName:        plantitle,
+			Planid:          planid,
+			Wordid:          wordid,
+			Word:            word,
+			SuggestPriceStr: suggestPriceStr,
+			Maxprice:        maxpriceStr,
+			MinPrice:        minPriceStr,
+			NowPrice:        nowPrice,
+		}
+		model.CreateOrUpdateData(&sqldata)
 		fmt.Println("修改成功")
 	} else {
 		fmt.Println("修改失败")

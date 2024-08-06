@@ -15,8 +15,10 @@ type Fromplan struct {
 	Maxprice        float64
 	SuggestPriceStr float64
 	NowPrice        float64
+	UpBySuggest     float64
 	Setprice        float64
 	Remarks         string
+	Status          bool
 }
 
 func NewFromplan() *Fromplan {
@@ -49,6 +51,10 @@ func SelectAllFiles() ([]*Fromplan, error) {
 func UpdateMaxPrice(data *Fromplan) *gorm.DB {
 	return DB.Model(data).Updates(Fromplan{Wordid: data.Wordid, Setprice: data.Setprice})
 }
+func UpdateNowPrice(data *Fromplan) *gorm.DB {
+	fmt.Println(data.NowPrice)
+	return DB.Model(data).Updates(Fromplan{Wordid: data.Wordid, NowPrice: data.NowPrice})
+}
 
 func SelectMaxPrice(data *Fromplan) (float64, error) {
 	var maxPrice float64
@@ -59,4 +65,67 @@ func SelectMaxPrice(data *Fromplan) (float64, error) {
 	}
 
 	return maxPrice, nil
+}
+func UpdateStatus(wordid int, newStatus bool) error {
+	// 执行更新操作，这里假设您使用了 GORM 或类似的 ORM 库
+	var word Fromplan
+	result := DB.Where("wordid = ?", wordid).First(&word)
+	if result.Error != nil {
+		// 处理查询失败的情况，可以打印错误信息或者进行其他处理
+		return result.Error
+	}
+
+	// 更新状态字段为 newStatus
+	word.Status = newStatus
+	result = DB.Save(&word)
+	if result.Error != nil {
+		// 处理更新失败的情况，可以打印错误信息或者进行其他处理
+		return result.Error
+	}
+
+	return nil
+}
+
+func SelectStatus(wordid int) (bool, error) {
+	var word Fromplan
+	result := DB.Where("wordid = ?", wordid).First(&word)
+	if result.Error != nil {
+		// 处理查询失败的情况，可以打印错误信息或者进行其他处理
+		fmt.Println("查询数据库失败:", result.Error)
+		return false, result.Error
+	}
+
+	// 返回词的状态
+	return word.Status, nil
+}
+
+func SelectByWordid(wordid int) (Fromplan, error) {
+	var word Fromplan
+	result := DB.Where("wordid = ?", wordid).First(&word)
+	if result.Error != nil {
+		// 处理查询失败的情况，例如打印日志或返回特定错误信息
+		return Fromplan{}, result.Error
+	}
+
+	return word, nil
+}
+
+func UpdateUpBysuggest(wordid int, UpBysuggest float64) error {
+	// 执行更新操作，这里假设您使用了 GORM 或类似的 ORM 库
+	var word Fromplan
+	result := DB.Where("wordid = ?", wordid).First(&word)
+	if result.Error != nil {
+		// 处理查询失败的情况，可以打印错误信息或者进行其他处理
+		return result.Error
+	}
+
+	// 更新状态字段为 newStatus
+	word.UpBySuggest = UpBysuggest
+	result = DB.Save(&word)
+	if result.Error != nil {
+		// 处理更新失败的情况，可以打印错误信息或者进行其他处理
+		return result.Error
+	}
+
+	return nil
 }

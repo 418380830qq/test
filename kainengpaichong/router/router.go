@@ -19,5 +19,8 @@ func Router() *gin.Engine {
 		})
 	})
 	r.POST("/update", service.UpdataMaxprice)
+	r.POST("/updatenowprice", service.UpdataNowPrice)
+	r.POST("/updateStatus", service.UpdataStatus)
+	r.POST("/updateupbysuggest", service.UpdateUpBySuggest)
 	return r
 }
